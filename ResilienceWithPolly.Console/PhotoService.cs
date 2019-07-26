@@ -23,14 +23,5 @@ namespace ResilienceWithPolly.Console
 
             return result;
         }
-
-        public async Task<IReadOnlyList<Photo>> GetAllPhotosAsync()
-        {
-            var uri = "https://jsonplaceholder.typicode.com/photos";
-            var responseString = await _httpClient.GetStringAsync(uri);
-            var result = JsonConvert.DeserializeObject<List<Photo>>(responseString);
-
-            return result;
-        }
     }
 }
