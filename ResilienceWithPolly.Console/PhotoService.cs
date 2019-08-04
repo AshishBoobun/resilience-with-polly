@@ -45,10 +45,10 @@ namespace ResilienceWithPolly.Console
                 || response.StatusCode == HttpStatusCode.TooManyRequests;
         };
 
-        private static TimeSpan ExponentialBackoffTimespan(int retryNumber)
+        private static Func<int, TimeSpan> ExponentialBackoffTimespan = retryNumber => 
         {
             return TimeSpan.FromSeconds(Math.Pow(2, retryNumber));
-        }
+        };
 
     }
 }
