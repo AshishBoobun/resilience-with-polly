@@ -1,13 +1,18 @@
+using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Newtonsoft.Json;
+using Polly;
 using ResilienceWithPolly.Console.Model;
 
 namespace ResilienceWithPolly.Console
 {
     public class PhotoService : IPhotoService
     {
+
+
         private readonly HttpClient _httpClient;
 
         public PhotoService(HttpClient httpClient)
@@ -23,5 +28,27 @@ namespace ResilienceWithPolly.Console
 
             return result;
         }
+
+        private static IAsyncPolicy<HttpResponseMessage> GetHttpClientTransientPolicy(int retryCount)
+        {
+            var policy = Policy.Handle<HttpRequestException>()
+            .OrResult(TransientHttpStatusCodePredicate)
+            .WaitAndRetryAsync(retryCount, ExponentialBackoffTimespan);
+
+            return policy;
+        }
+
+        private static readonly Func<HttpResponseMessage, bool> TransientHttpStatusCodePredicate = (response) =>
+        {
+            return (int)response.StatusCode >= 500 
+                || response.StatusCode == HttpStatusCode.RequestTimeout 
+                || response.StatusCode == HttpStatusCode.TooManyRequests;
+        };
+
+        private static TimeSpan ExponentialBackoffTimespan(int retryNumber)
+        {
+            return TimeSpan.FromSeconds(Math.Pow(2, retryNumber));
+        }
+
     }
 }
