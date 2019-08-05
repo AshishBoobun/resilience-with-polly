@@ -52,7 +52,7 @@ namespace ResilienceWithPolly.Console
             return policy.WithPolicyKey(HttpClientPollyPolicyKey);
         }
 
-        public HttpClientPollyPolicy GetHttpClientWaitRetryPolicy(int retryCount)
+        public HttpClientPollyPolicy AddWaitRetryPolicy(int retryCount)
         {
             if (!_policies.ContainsKey(RetryKey))
             {
@@ -67,7 +67,7 @@ namespace ResilienceWithPolly.Console
             return this;
         }
 
-        public HttpClientPollyPolicy GetHttpClientTimeoutPolicy(int timeoutInSeconds)
+        public HttpClientPollyPolicy AddTimeoutPolicy(int timeoutInSeconds)
         {
             if (!_policies.ContainsKey(TimeoutKey))
             {
@@ -80,7 +80,7 @@ namespace ResilienceWithPolly.Console
             return this;
         }
 
-        public HttpClientPollyPolicy GetHttpClientCircuitBreakerPolicy(int exceptionAllowedBeforeBreaking, TimeSpan durationOfBreak)
+        public HttpClientPollyPolicy AddCircuitBreakerPolicy(int exceptionAllowedBeforeBreaking, TimeSpan durationOfBreak)
         {
             if (!_policies.ContainsKey(CircuitBreakerKey))
             {
@@ -104,7 +104,7 @@ namespace ResilienceWithPolly.Console
             return this;
         }
 
-        public HttpClientPollyPolicy HttpClientFallbackPolicy(Func<Task<HttpResponseMessage>> action)
+        public HttpClientPollyPolicy AddFallbackPolicy(Func<Task<HttpResponseMessage>> action)
         {
             if (!_policies.ContainsKey(FallbackKey))
             {
