@@ -42,13 +42,16 @@ namespace ResilienceWithPolly.Console
             var policies = _policies.OrderByDescending(p => GetPolicyPriority(p.Key)).ToList();
             var policy = policies.First().Value;
 
-            if (policies.Count > 1)
+            if (policies.Count == 1)
             {
-                for (int i = 1; i < policies.Count; i++)
-                {
-                    policy.WrapAsync(policies[i].Value);
-                }
+                return policy;
             }
+
+            for (int i = 1; i < policies.Count; i++)
+            {
+                policy.WrapAsync(policies[i].Value);
+            }
+
             return policy.WithPolicyKey(HttpClientPollyPolicyKey);
         }
 
