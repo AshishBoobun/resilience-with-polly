@@ -1,8 +1,10 @@
 using System;
 using System.Net;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 using Moq;
+using Polly.Timeout;
 using ResilienceWithPolly.Console;
 using Xunit;
 
@@ -105,6 +107,42 @@ namespace ResilienceWithPolly.Tests
 
             await Assert.ThrowsAsync<HttpRequestException>(action);
             mockInterface.Verify(exp => exp.DoSomethingAsync(It.IsAny<int>()), Times.Exactly(retryCount + 1));
+        }
+
+        [Fact]
+        public async Task AddTimeoutPolicy_OperationCompleteWithinTimeoutPeriod_CompleteSuccessfully()
+        {
+            var timeoutInMilliseconds = 1000;
+            var policy = HttpClientPollyPolicy.Initialise()
+                .AddTimeoutPolicy(timeoutInMilliseconds / 1000)
+                .Build();
+            var mockInterface = new Mock<IFakeInterface>();
+            mockInterface.Setup(exp => exp.DoSomethingAsync(It.IsAny<int>()))
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK), TimeSpan.FromMilliseconds(timeoutInMilliseconds / 2));
+            var mockInstance = mockInterface.Object;
+
+            var result = await policy.ExecuteAsync(() => mockInstance.DoSomethingAsync(3));
+
+            Assert.Equal(HttpStatusCode.OK, result.StatusCode);
+            mockInterface.Verify(exp => exp.DoSomethingAsync(It.IsAny<int>()), Times.Exactly(1));
+        }
+
+        [Fact]
+        public async Task AddTimeoutPolicy_OperationExceedTimeoutPeriod_ThrowsPollyTimeoutRejectedException()
+        {
+            var timeoutInMilliseconds = 1000;
+            var policy = HttpClientPollyPolicy.Initialise()
+                .AddTimeoutPolicy(timeoutInMilliseconds / 1000)
+                .Build();
+            var mockInterface = new Mock<IFakeInterface>();
+            mockInterface.Setup(exp => exp.DoSomethingAsync(It.IsAny<int>()))
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK), TimeSpan.FromMilliseconds(timeoutInMilliseconds + 20));
+            var mockInstance = mockInterface.Object;
+
+            Func<Task<HttpResponseMessage>> action = () => policy.ExecuteAsync(() => mockInstance.DoSomethingAsync(3));
+
+            await Assert.ThrowsAsync<TimeoutRejectedException>(action);
+            mockInterface.Verify(exp => exp.DoSomethingAsync(It.IsAny<int>()), Times.Exactly(1));
         }
     }
 }
