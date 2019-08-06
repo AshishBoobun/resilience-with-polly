@@ -351,5 +351,35 @@ namespace ResilienceWithPolly.Tests
             await Task.Delay(circuitBreakDuration);
             Assert.Equal(httpStatusCode, (await action()).StatusCode);
         }
+
+        [Fact]
+        public async Task AddCircuitBreakerPolicy_RandomHandledHttpErrors_OnlyBreakWhenConsecutiveHandledErrorsDetected()
+        {
+            var statusCodeInOrder = new[] { HttpStatusCode.RequestTimeout, HttpStatusCode.RequestTimeout, HttpStatusCode.TooManyRequests, 
+                                            HttpStatusCode.RequestTimeout, HttpStatusCode.RequestTimeout, HttpStatusCode.RequestTimeout, HttpStatusCode.RequestTimeout };
+            var exceptionAllowedBeforeBreaking = 3;
+            var circuitBreakDuration = 400;
+            var mockInterface = new Mock<IFakeInterface>();
+            mockInterface.Setup(exp => exp.DoSomethingAsync(It.IsAny<int>()))
+                .Returns((int count) => Task.FromResult(new HttpResponseMessage(statusCodeInOrder[count])));
+            var mockInstance = mockInterface.Object;
+            var policy = HttpClientPollyPolicy.Initialise()
+                .AddCircuitBreakerPolicy(exceptionAllowedBeforeBreaking, TimeSpan.FromMilliseconds(circuitBreakDuration))
+                .Build();
+            
+            Func<int, Task<HttpResponseMessage>> action = (int index) => policy.ExecuteAsync(() => mockInstance.DoSomethingAsync(index));
+            Func<Task<HttpResponseMessage>> actionNoParam = () => policy.ExecuteAsync(() => mockInstance.DoSomethingAsync(3));
+
+            Assert.Equal(statusCodeInOrder[0], (await action(0)).StatusCode);
+            Assert.Equal(statusCodeInOrder[1], (await action(1)).StatusCode);
+            Assert.Equal(statusCodeInOrder[2], (await action(2)).StatusCode);
+            Assert.Equal(statusCodeInOrder[3], (await action(3)).StatusCode);
+            Assert.Equal(statusCodeInOrder[4], (await action(4)).StatusCode);
+            Assert.Equal(statusCodeInOrder[5], (await action(5)).StatusCode);
+
+            await Assert.ThrowsAsync<BrokenCircuitException<HttpResponseMessage>>(actionNoParam);
+            await Task.Delay(circuitBreakDuration);
+            Assert.Equal(statusCodeInOrder[6], (await action(6)).StatusCode);
+        }
     }
 }
