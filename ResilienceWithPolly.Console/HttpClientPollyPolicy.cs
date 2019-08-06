@@ -1,13 +1,13 @@
 
+using Polly;
+using Polly.CircuitBreaker;
+using Polly.Timeout;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
-using Polly;
-using Polly.CircuitBreaker;
-using Polly.Timeout;
 
 namespace ResilienceWithPolly.Console
 {
@@ -39,30 +39,20 @@ namespace ResilienceWithPolly.Console
                 throw new ArgumentException("No policies have been defined");
             }
 
-            var policies = _policies.OrderByDescending(p => GetPolicyPriority(p.Key)).ToList();
-            var policy = policies.First().Value;
-
-            if (policies.Count == 1)
+            if (_policies.Count == 1)
             {
-                return policy;
+                return _policies.Single().Value;
             }
 
-            for (int i = 1; i < policies.Count; i++)
-            {
-                policy.WrapAsync(policies[i].Value);
-            }
-
-            return policy.WithPolicyKey(HttpClientPollyPolicyKey);
+            return Policy.WrapAsync(_policies.OrderByDescending(p => GetPolicyPriority(p.Key)).Select(p => p.Value).ToArray());
         }
 
         public HttpClientPollyPolicy AddWaitRetryPolicy(int retryCount)
         {
             if (!_policies.ContainsKey(RetryKey))
             {
-                var policy = Policy.Handle<HttpRequestException>()
-                .OrResult(TransientHttpStatusCodePredicate)
-                .WaitAndRetryAsync(retryCount, ExponentialBackoffTimespan)
-                .WithPolicyKey(RetryKey);
+                var policy = HttpClientPolicyBuilder.WaitAndRetryAsync(retryCount, ExponentialBackoffTimespan)
+                    .WithPolicyKey(RetryKey);
 
                 _policies.Add(RetryKey, policy);
             }
@@ -75,7 +65,7 @@ namespace ResilienceWithPolly.Console
             if (!_policies.ContainsKey(TimeoutKey))
             {
                 var policy = Policy.TimeoutAsync<HttpResponseMessage>(timeoutInSeconds, TimeoutStrategy.Pessimistic)
-                .WithPolicyKey(TimeoutKey);
+                    .WithPolicyKey(TimeoutKey);
 
                 _policies.Add(TimeoutKey, policy);
             }
@@ -87,6 +77,7 @@ namespace ResilienceWithPolly.Console
         {
             if (!_policies.ContainsKey(CircuitBreakerKey))
             {
+                //Define separate to make circuit breaker work on separate error rather than considering all error as one
                 var policy1 = Policy.Handle<HttpRequestException>()
                     .CircuitBreakerAsync(exceptionAllowedBeforeBreaking, durationOfBreak);
 
@@ -111,8 +102,7 @@ namespace ResilienceWithPolly.Console
         {
             if (!_policies.ContainsKey(FallbackKey))
             {
-                var policy = Policy.Handle<HttpRequestException>()
-                    .OrResult(TransientHttpStatusCodePredicate)
+                var policy = HttpClientPolicyBuilder
                     .Or<TimeoutRejectedException>()
                     .Or<BrokenCircuitException>()
                     .FallbackAsync(cancellationToken => action())
@@ -123,6 +113,8 @@ namespace ResilienceWithPolly.Console
 
             return this;
         }
+
+        private PolicyBuilder<HttpResponseMessage> HttpClientPolicyBuilder => Policy.Handle<HttpRequestException>().OrResult(TransientHttpStatusCodePredicate);
 
         private readonly Func<HttpResponseMessage, bool> TransientHttpStatusCodePredicate = (response) =>
         {
@@ -147,8 +139,18 @@ namespace ResilienceWithPolly.Console
             {
                 return 1000;
             }
+            //Retry outer wraps circuit breaker
+            if (policyKey.Equals(RetryKey))
+            {
+                return 100;
+            }
 
-            return 10;
+            if (policyKey.Equals(CircuitBreakerKey))
+            {
+                return 10;
+            }
+
+            return -1;
         }
     }
 }

@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Moq;
+using Polly;
 using Polly.CircuitBreaker;
 using Polly.Timeout;
 using ResilienceWithPolly.Console;
@@ -380,6 +381,90 @@ namespace ResilienceWithPolly.Tests
             await Assert.ThrowsAsync<BrokenCircuitException<HttpResponseMessage>>(actionNoParam);
             await Task.Delay(circuitBreakDuration);
             Assert.Equal(statusCodeInOrder[6], (await action(6)).StatusCode);
+        }
+
+        [Fact]
+        public async Task HttpClientPolicy_CombinePolicies_BehavesAccordingToPolicy()
+        {
+            var retryCount = 3;
+            var exceptionAllowedBeforeBreaking = retryCount + 2;
+            var circuitBreakDurationInMs = 10000;
+            var timeoutInSeconds = 25;
+
+            var foo = new FooStub();
+
+            var policy = HttpClientPollyPolicy.Initialise()
+                .AddWaitRetryPolicy(retryCount)
+                .AddFallbackPolicy(() => foo.FakeCallback())
+                .AddCircuitBreakerPolicy(exceptionAllowedBeforeBreaking, TimeSpan.FromMilliseconds(circuitBreakDurationInMs))
+                .AddTimeoutPolicy(timeoutInSeconds)
+                .Build();
+
+            Func<bool, int?, Task<HttpResponseMessage>> barAsync = (bool returnFailureMessage, int? fakeTimeoutInSeconds) => policy.ExecuteAsync(() => foo.BarAsync(returnFailureMessage, fakeTimeoutInSeconds));
+
+            var result = await barAsync(true, null);
+            int barAsyncMethodInvocationCount = retryCount + 1;
+            Assert.Equal(HttpStatusCode.BadRequest, result.StatusCode);
+
+            result = await barAsync(true, null);
+            barAsyncMethodInvocationCount++;
+            int callbackMethodInvocationCount = 3;
+            Assert.Equal(HttpStatusCode.BadRequest, result.StatusCode);
+
+            await Task.Delay(circuitBreakDurationInMs);
+
+            //Return unhandled error code to transition circuit from half-open to close
+            result = await barAsync(false, null);
+            barAsyncMethodInvocationCount++;
+            Assert.Equal(HttpStatusCode.OK, result.StatusCode);
+
+            result = await barAsync(true, null);
+            barAsyncMethodInvocationCount += retryCount + 1;
+            Assert.Equal(HttpStatusCode.BadRequest, result.StatusCode);
+
+            result = await barAsync(true, timeoutInSeconds);
+            barAsyncMethodInvocationCount++;
+            callbackMethodInvocationCount++;
+            Assert.Equal(HttpStatusCode.BadRequest, result.StatusCode);
+
+            Assert.Equal(callbackMethodInvocationCount, foo.FallbackCount);
+            Assert.Equal(barAsyncMethodInvocationCount, foo.BarAsyncCount);
+        }
+
+        public class FooStub
+        {
+            public int BarAsyncCount { get; private set; }
+
+            public int FallbackCount { get; private set; }
+
+            public FooStub()
+            {
+                BarAsyncCount = 0;
+                FallbackCount = 0;
+            }
+
+            public async Task<HttpResponseMessage> BarAsync(bool returnFailureMessage, int? fakeTimeoutInSeconds = null)
+            {
+                BarAsyncCount++;
+
+                if (fakeTimeoutInSeconds.HasValue && fakeTimeoutInSeconds.Value > 0)
+                {
+                    await Task.Delay(fakeTimeoutInSeconds.Value * 1000);
+                }
+
+                if (returnFailureMessage)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.InternalServerError);
+                }
+
+                return new HttpResponseMessage(HttpStatusCode.OK);
+            }
+
+            public Task<HttpResponseMessage> FakeCallback()
+            {
+                FallbackCount++;
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest));
+            }
         }
     }
 }
