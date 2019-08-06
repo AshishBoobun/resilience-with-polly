@@ -4,6 +4,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using Moq;
+using Polly.CircuitBreaker;
 using Polly.Timeout;
 using ResilienceWithPolly.Console;
 using Xunit;
@@ -143,6 +144,56 @@ namespace ResilienceWithPolly.Tests
 
             await Assert.ThrowsAsync<TimeoutRejectedException>(action);
             mockInterface.Verify(exp => exp.DoSomethingAsync(It.IsAny<int>()), Times.Exactly(1));
+        }
+
+        [Theory]
+        [InlineData(typeof(HttpRequestException))]
+        [InlineData(typeof(TimeoutRejectedException))]
+        [InlineData(typeof(BrokenCircuitException))]
+        public async Task AddFallbackPolicy_WithHandledExceptions_InvokeFallbackMethod(Type exceptionType)
+        {
+            var mockInterface = new Mock<IFakeInterface>();
+            mockInterface.Setup(exp => exp.DoSomethingAsync(It.IsAny<int>()))
+                .Throws(Activator.CreateInstance(exceptionType) as Exception);
+            mockInterface.Setup(exp => exp.FakeCallback())
+                .Returns(Task.FromResult(new HttpResponseMessage(HttpStatusCode.Accepted)));
+            var mockInstance = mockInterface.Object;
+            var policy = HttpClientPollyPolicy.Initialise()
+                .AddFallbackPolicy(() => mockInstance.FakeCallback())
+                .Build();
+
+             var result = await policy.ExecuteAsync(() => mockInstance.DoSomethingAsync(3));
+
+            Assert.Equal(HttpStatusCode.Accepted, result.StatusCode);
+            mockInterface.Verify(exp => exp.DoSomethingAsync(It.IsAny<int>()), Times.Exactly(1));
+            mockInterface.Verify(exp => exp.FakeCallback(), Times.Exactly(1));
+        }
+
+        [Theory]
+        [InlineData(HttpStatusCode.RequestTimeout)]
+        [InlineData(HttpStatusCode.TooManyRequests)]
+        [InlineData(HttpStatusCode.ServiceUnavailable)]
+        [InlineData(HttpStatusCode.BadGateway)]
+        [InlineData(HttpStatusCode.GatewayTimeout)]
+        [InlineData(HttpStatusCode.HttpVersionNotSupported)]
+        [InlineData(HttpStatusCode.NotImplemented)]
+        public async Task AddFallbackPolicy_WithHandledHttpErrors_InvokeFallbackMethod(HttpStatusCode httpStatusCode)
+        {
+            var mockInterface = new Mock<IFakeInterface>();
+            mockInterface.Setup(exp => exp.DoSomethingAsync(It.IsAny<int>()))
+                .Returns(Task.FromResult(new HttpResponseMessage(httpStatusCode)));
+            mockInterface.Setup(exp => exp.FakeCallback())
+                .Returns(Task.FromResult(new HttpResponseMessage(HttpStatusCode.Accepted)));
+            var mockInstance = mockInterface.Object;
+            var policy = HttpClientPollyPolicy.Initialise()
+                .AddFallbackPolicy(() => mockInstance.FakeCallback())
+                .Build();
+
+             var result = await policy.ExecuteAsync(() => mockInstance.DoSomethingAsync(3));
+
+            Assert.Equal(HttpStatusCode.Accepted, result.StatusCode);
+            mockInterface.Verify(exp => exp.DoSomethingAsync(It.IsAny<int>()), Times.Exactly(1));
+            mockInterface.Verify(exp => exp.FakeCallback(), Times.Exactly(1));
         }
     }
 }

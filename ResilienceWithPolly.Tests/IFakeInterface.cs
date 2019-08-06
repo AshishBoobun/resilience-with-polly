@@ -6,5 +6,7 @@ namespace ResilienceWithPolly.Tests
     public interface IFakeInterface
     {
         Task<HttpResponseMessage> DoSomethingAsync(int count);
+
+        Task<HttpResponseMessage> FakeCallback();
     }
 }
