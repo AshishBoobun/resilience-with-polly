@@ -252,20 +252,27 @@ namespace ResilienceWithPolly.Tests
             var circuitBreakDuration = 400;
             var message = "sample exception";
             var mockInterface = new Mock<IFakeInterface>();
-            mockInterface.Setup(exp => exp.DoSomethingAsync(It.IsAny<int>()))
+            mockInterface.Setup(exp => exp.DoSomethingAsync(1))
                 .Throws(new HttpRequestException(message));
+            mockInterface.Setup(exp => exp.DoSomethingAsync(2))
+                .Returns(Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)));
             var mockInstance = mockInterface.Object;
             var policy = HttpClientPollyPolicy.Initialise()
                 .AddCircuitBreakerPolicy(exceptionAllowedBeforeBreaking, TimeSpan.FromMilliseconds(circuitBreakDuration))
                 .Build();
 
-            Func<Task<HttpResponseMessage>> action = () => policy.ExecuteAsync(() => mockInstance.DoSomethingAsync(3));
+            Func<int, Task<HttpResponseMessage>> action = count => policy.ExecuteAsync(() => mockInstance.DoSomethingAsync(count));
 
-            await Assert.ThrowsAsync<HttpRequestException>(action);
-            await Assert.ThrowsAsync<HttpRequestException>(action);
-            await Assert.ThrowsAsync<BrokenCircuitException>(action);
+            await Assert.ThrowsAsync<HttpRequestException>(() => action(1));
+            await Assert.ThrowsAsync<HttpRequestException>(() => action(1));
+            await Assert.ThrowsAsync<BrokenCircuitException>(() => action(1));
             await Task.Delay(circuitBreakDuration);
-            await Assert.ThrowsAsync<HttpRequestException>(action);
+
+            //Half Open goes to Close
+            var result = await action(2);
+            Assert.Equal(HttpStatusCode.OK, result.StatusCode);
+
+            await Assert.ThrowsAsync<HttpRequestException>(() => action(1));
         }
 
 
