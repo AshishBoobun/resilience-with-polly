@@ -1,4 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
+using System;
+using System.Net;
+using System.Net.Http;
+using System.Threading.Tasks;
 
 namespace ResilienceWithPolly.Console
 {
@@ -17,6 +21,7 @@ namespace ResilienceWithPolly.Console
 
         private void Initialise()
         {
+            ServiceCollection.AddSingleton<IPollyHttpClientFactory, PollyHttpClientFactory>();
             ServiceCollection.AddHttpClient<IPhotoService, PhotoService>();
         }
     }

@@ -14,6 +14,8 @@ namespace ResilienceWithPolly.Console
             {
                 System.Console.WriteLine($"Id: {album.Id}, Title: {album.Title}");
             }
+
+            System.Console.ReadLine();
         }
     }
 }

@@ -1,27 +1,36 @@
+using Newtonsoft.Json;
+using ResilienceWithPolly.Console.Model;
 using System.Collections.Generic;
 using System.Net.Http;
 using System.Threading.Tasks;
-using Newtonsoft.Json;
-using ResilienceWithPolly.Console.Model;
 
 namespace ResilienceWithPolly.Console
 {
-    public class PhotoService : IPhotoService
+public class PhotoService : IPhotoService
+{
+    private readonly HttpClient _httpClient;
+    private readonly IPollyHttpClientFactory _pollyHttpClientFactory;
+
+    public PhotoService(HttpClient httpClient, IPollyHttpClientFactory pollyHttpClientFactory)
     {
-        private readonly HttpClient _httpClient;
+        _httpClient = httpClient;
+        _pollyHttpClientFactory = pollyHttpClientFactory;
+    }
 
-        public PhotoService(HttpClient httpClient)
-        {
-            this._httpClient = httpClient;
-        }
+    public async Task<IReadOnlyList<Album>> GetAllAlbumsAsync()
+    {
+        var policy = _pollyHttpClientFactory.BuildPolicy(PollyPolicyType.AlbumServicePolicy);
 
-        public async Task<IReadOnlyList<Album>> GetAllAlbumsAsync()
+        var uri = "https://jsonplaceholder.typicode.com/albums";
+        var response = await policy.ExecuteAsync(() => _httpClient.GetAsync(uri));
+        if (response.IsSuccessStatusCode)
         {
-            var uri = "https://jsonplaceholder.typicode.com/albums";
-            var responseString = await _httpClient.GetStringAsync(uri);
+            var responseString = await response.Content.ReadAsStringAsync();
             var result = JsonConvert.DeserializeObject<List<Album>>(responseString);
-
             return result;
         }
+
+        return new List<Album>();
     }
+}
 }
